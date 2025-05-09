@@ -1,0 +1,383 @@
+#!/bin/zsh
+
+# --- Colors ---
+RESET="\033[0m"
+BOLD="\033[1m"
+FG_RED="\033[31m"
+FG_GREEN="\033[32m"
+FG_YELLOW="\033[33m"
+FG_BLUE="\033[34m"
+FG_MAGENTA="\033[35m"
+FG_CYAN="\033[36m"
+FG_WHITE="\033[97m"
+
+SEP="${FG_MAGENTA}────────────────────────────────────────────────────${RESET}"
+PROMPT="${FG_CYAN}❯${RESET}"
+
+# --- NERD Font Icons (colored as titles) ---
+ICON_MOUNT="${FG_GREEN}\uf019${RESET}"     # 
+ICON_UMOUNT="${FG_RED}\uf1f8${RESET}"      # 
+ICON_EXPLORER="${FG_YELLOW}\uf07b${RESET}" # 
+ICON_EDIT="${FG_CYAN}\uf044${RESET}"       # 
+ICON_BACK="${FG_WHITE}\uf0e2${RESET}"      # 
+ICON_HELP="${FG_MAGENTA}\uf059${RESET}"    # 
+ICON_EXIT="${FG_RED}\uf2f5${RESET}"        # 
+ICON_EDITOR="${FG_CYAN}\ue7c5${RESET}"     # 
+ICON_FOLDER="${FG_YELLOW}\uf115${RESET}"   # 
+
+# --- Menu Labels ---
+_MOUNT="${ICON_MOUNT}  ${BOLD}${FG_GREEN}Mount${RESET}"
+_UMOUNT="${ICON_UMOUNT}  ${BOLD}${FG_RED}Unmount${RESET}"
+_EXPLORER="${ICON_EXPLORER}  ${BOLD}${FG_YELLOW}Explorer${RESET}"
+_EDIT="${ICON_EDIT}  ${BOLD}${FG_CYAN}Edit config file${RESET}"
+_BACK="${ICON_BACK}  ${FG_WHITE}Back to Main Menu${RESET}"
+_HELP="${ICON_HELP}  ${FG_MAGENTA}Help${RESET}"
+_EXIT="${ICON_EXIT}  ${FG_RED}Exit${RESET}"
+_ERROR_MESSAGE=""
+_SUCCESS_MESSAGE=""
+
+RCLONEM_JSON=$HOME/.config/rclonem/config.json
+RCLONEM_HELP=$HOME/.config/rclonem/help.txt
+
+# --- Ensure config file exists ---
+if [ ! -e "$RCLONEM_JSON" ]; then
+    mkdir -p "$(dirname "$RCLONEM_JSON")" && touch "$RCLONEM_JSON"
+    cat >"$RCLONEM_JSON" <<EOF
+{
+    "options": {
+        "editor": "/usr/bin/nano",
+        "explorer": "yazi"
+    },
+    "points": {}
+}
+EOF
+fi
+
+# --- Ensure help file exists ---
+if [ ! -e "$RCLONEM_HELP" ]; then
+    mkdir -p "$(dirname "$RCLONEM_HELP")" && touch "$RCLONEM_HELP"
+    cat >"$RCLONEM_HELP" <<EOF
+== RCLONE MANAGER ================================================
+
+-- INFO
+
+Rclone Manager is a CLI tool to mount and unmount remote directories using rclone.
+
+1) Predefined options (default explorer and editor) and rclone configs
+
+2) Intuitive menu interface
+
+3) Exploring mounted directories from the menu
+
+4) Editing configuration file from the menu
+
+Requirements: jshon, rclone, fusermount
+
+-- HOW TO USE
+
+Just download rclonem and run it (the script automatically creates a config file - ~/.config/rclonem/config.json).
+
+If you want to add rclonem to your PATH, add this to your bashrc:
+
+export PATH=\$PATH:/path/to/rclonem
+
+** Default options
+
+"options": {
+    "editor": "/usr/bin/nano", 
+    "explorer": "yazi"
+}
+
+** How to configure mount points
+
+"points": {
+    "NAME OF YOUR POINT": {
+        "remote_name": "my-remote", // required, must be configured in rclone
+        "remote_path": "path/to/directory", // required
+        "local_directory": "/path/to/local/directory", // required
+        "options": [
+            "--vfs-cache-mode", "full",
+            "--buffer-size", "128M"
+        ] // optional, default null
+    }
+}
+
+To configure SSH/SFTP connections:
+1. First create the remote in rclone using: rclone config
+2. Choose "sftp" type and enter your server details
+3. Add the remote to this config file
+
+For more information about rclone, visit: https://rclone.org/docs/
+EOF
+fi
+
+# --- Helpers ---
+GET_OPTIONS() {
+    EDITOR=$(jshon -e options -e editor -u -Q <"$RCLONEM_JSON")
+    EXPLORER=$(jshon -e options -e explorer -u -Q <"$RCLONEM_JSON")
+    LENGTHS=$(jshon -e points -l -Q <"$RCLONEM_JSON")
+    IFS=$'\n'
+    LIST_POINTS=$(jshon -e points -k -S -Q <"${RCLONEM_JSON}")
+    LIST_MOUNTED_POINTS=()
+    LIST_UMOUNTED_POINTS=()
+    for i in $LIST_POINTS; do
+        LOCAL_DIRECTORY=$(jshon -e points -e "$i" -e "local_directory" -u -Q <"${RCLONEM_JSON}")
+        RESULT=$(IS_MOUNTED "$LOCAL_DIRECTORY")
+        if [[ $RESULT == 1 ]]; then
+            LIST_MOUNTED_POINTS+=("$i")
+        else
+            LIST_UMOUNTED_POINTS+=("$i")
+        fi
+    done
+}
+
+IS_MOUNTED() {
+    if (($(mount | grep -c "$1") > 0)); then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+PRINT_HEADER() {
+    clear
+    echo -e "${FG_BLUE}${BOLD}                 RCLONE MANAGER                 ${RESET}"
+    echo -e "$SEP"
+}
+
+PRINT_FOOTER() {
+    echo -e "$SEP"
+    # Print Editor and Explorer on separate lines with Nerd font icons (colored as titles)
+    echo -e "  ${ICON_EDITOR}  ${FG_CYAN}Editor:${RESET} $EDITOR"
+    echo -e "  ${ICON_FOLDER}  ${FG_YELLOW}Explorer:${RESET} $EXPLORER"
+    echo -e "$SEP"
+}
+
+SHOW_MSGS() {
+    if [ -n "$_ERROR_MESSAGE" ]; then
+        echo -e "${FG_MAGENTA}${BOLD}Error:${RESET} ${FG_RED}${_ERROR_MESSAGE}${RESET}"
+        echo ""
+        _ERROR_MESSAGE=""
+    fi
+    if [ -n "$_SUCCESS_MESSAGE" ]; then
+        # Success: green foreground (no background block)
+        echo -e "${FG_GREEN}${BOLD}Success:${RESET} ${FG_GREEN}${_SUCCESS_MESSAGE}${RESET}"
+        echo ""
+        _SUCCESS_MESSAGE=""
+    fi
+}
+
+# --- Menus ---
+MENU_MAIN() {
+    PRINT_HEADER
+    SHOW_MSGS
+    GET_OPTIONS
+    echo -e "${FG_YELLOW}${BOLD}Main Menu:${RESET}\n"
+    if [[ $LENGTHS -le 0 ]]; then
+        keys=("$_EDIT" "$_HELP" "$_EXIT")
+    else
+        keys=("$_MOUNT" "$_UMOUNT" "$_EXPLORER" "$_EDIT" "$_HELP" "$_EXIT")
+    fi
+    for idx in {1..${#keys[@]}}; do
+        echo -e "  ${FG_MAGENTA}$idx.${RESET} ${keys[$idx]}"
+    done
+    PRINT_FOOTER
+    echo -ne "$PROMPT Choose action (1-${#keys[@]}): "
+    read -r sel
+    action="${keys[$sel]}"
+    if [[ -n "$action" && "$sel" =~ '^[0-9]+$' ]]; then
+        case "$action" in
+        *Mount*)
+            MENU_MOUNT
+            ;;
+        *Unmount*)
+            MENU_UMOUNT
+            ;;
+        *Explorer*)
+            MENU_EXPLORER
+            ;;
+        *Edit*)
+            EDIT
+            MENU_MAIN
+            ;;
+        *Help*)
+            HELP
+            MENU_MAIN
+            ;;
+        *Exit*)
+            EXIT
+            ;;
+        *)
+            _ERROR_MESSAGE="Invalid option!"
+            MENU_MAIN
+            ;;
+        esac
+    else
+        _ERROR_MESSAGE="Invalid option!"
+        MENU_MAIN
+    fi
+}
+
+MENU_MOUNT() {
+    PRINT_HEADER
+    SHOW_MSGS
+    GET_OPTIONS
+    echo -e "${FG_GREEN}${BOLD}Choose point to mount:${RESET}\n"
+    local entries=()
+    for i in $LIST_UMOUNTED_POINTS; do
+        local info="$(jshon -e points -e "$i" -e "local_directory" -u -Q <"${RCLONEM_JSON}")"
+        entries+=("${FG_GREEN}$i${RESET} ${FG_CYAN}→${RESET} ${FG_YELLOW}$info${RESET}")
+    done
+    entries+=("$_BACK")
+    entries+=("$_EXIT")
+    for idx in {1..${#entries[@]}}; do
+        echo -e "  ${FG_MAGENTA}$idx.${RESET} ${entries[$idx]}"
+    done
+    PRINT_FOOTER
+    echo -ne "$PROMPT Mount (1-${#entries[@]}): "
+    read -r sel
+    POINT="${LIST_UMOUNTED_POINTS[$sel]}"
+    if [[ "$sel" -eq $((${#entries[@]} - 1)) ]]; then
+        MENU_MAIN
+        return
+    elif [[ "$sel" -eq ${#entries[@]} ]]; then
+        EXIT
+        return
+    elif [[ -z "$POINT" ]]; then
+        _ERROR_MESSAGE="Invalid option!"
+        MENU_MOUNT
+        return
+    fi
+
+    REMOTE_NAME=$(jshon -e points -e "$POINT" -e "remote_name" -u -Q <"${RCLONEM_JSON}")
+    REMOTE_PATH=$(jshon -e points -e "$POINT" -e "remote_path" -u -Q <"${RCLONEM_JSON}")
+    LOCAL_DIRECTORY=$(jshon -e points -e "$POINT" -e "local_directory" -u -Q <"${RCLONEM_JSON}")
+
+    if [ -z "$REMOTE_PATH" ] || [ "$REMOTE_PATH" = "/" ]; then
+        REMOTE_SPEC="${REMOTE_NAME}:"
+    else
+        REMOTE_SPEC="${REMOTE_NAME}:${REMOTE_PATH}"
+    fi
+
+    if [ ! -d "$LOCAL_DIRECTORY" ]; then
+        mkdir -p "$LOCAL_DIRECTORY"
+    fi
+
+    # Read options as array if present (JSON array)
+    OPTIONS=()
+    if jshon -e points -e "$POINT" -e "options" <"${RCLONEM_JSON}" | grep -q '\['; then
+        while read -r opt; do
+            OPTIONS+=("$opt")
+        done < <(jshon -e points -e "$POINT" -e "options" -a -u <"${RCLONEM_JSON}")
+    fi
+
+    echo -e "\n${FG_YELLOW}Mounting ${FG_GREEN}$REMOTE_SPEC${RESET} ${FG_CYAN}→${RESET} ${FG_YELLOW}$LOCAL_DIRECTORY${RESET} ${FG_MAGENTA}(please wait)${RESET}"
+    rclone mount "$REMOTE_SPEC" "$LOCAL_DIRECTORY" "${OPTIONS[@]}" --daemon
+
+    sleep 2
+    RESULT=$(IS_MOUNTED "$LOCAL_DIRECTORY")
+    if [[ $RESULT == 1 ]]; then
+        _SUCCESS_MESSAGE="${REMOTE_NAME} mounted successfully!"
+    else
+        _ERROR_MESSAGE="${REMOTE_NAME} could not be mounted!"
+    fi
+    MENU_MOUNT
+}
+
+MENU_UMOUNT() {
+    PRINT_HEADER
+    SHOW_MSGS
+    GET_OPTIONS
+    echo -e "${FG_RED}${BOLD}Choose point to unmount:${RESET}\n"
+    local entries=()
+    for i in $LIST_MOUNTED_POINTS; do
+        local info="$(jshon -e points -e "$i" -e "local_directory" -u -Q <"${RCLONEM_JSON}")"
+        entries+=("${FG_RED}$i${RESET} ${FG_CYAN}→${RESET} ${FG_YELLOW}$info${RESET}")
+    done
+    entries+=("$_BACK")
+    entries+=("$_EXIT")
+    for idx in {1..${#entries[@]}}; do
+        echo -e "  ${FG_MAGENTA}$idx.${RESET} ${entries[$idx]}"
+    done
+    PRINT_FOOTER
+    echo -ne "$PROMPT Unmount (1-${#entries[@]}): "
+    read -r sel
+    POINT="${LIST_MOUNTED_POINTS[$sel]}"
+    if [[ "$sel" -eq $((${#entries[@]} - 1)) ]]; then
+        MENU_MAIN
+        return
+    elif [[ "$sel" -eq ${#entries[@]} ]]; then
+        EXIT
+        return
+    elif [[ -z "$POINT" ]]; then
+        _ERROR_MESSAGE="Invalid option!"
+        MENU_UMOUNT
+        return
+    fi
+
+    REMOTE_NAME=$(jshon -e points -e "$POINT" -e "remote_name" -u -Q <"${RCLONEM_JSON}")
+    LOCAL_DIRECTORY=$(jshon -e points -e "$POINT" -e "local_directory" -u -Q <"${RCLONEM_JSON}")
+
+    echo -e "\n${FG_YELLOW}Unmounting ${FG_RED}$REMOTE_NAME${RESET} ${FG_YELLOW}from${RESET} ${FG_CYAN}$LOCAL_DIRECTORY${RESET}..."
+    fusermount -u "$LOCAL_DIRECTORY"
+    sleep 1
+
+    RESULT=$(IS_MOUNTED "$LOCAL_DIRECTORY")
+    if [[ $RESULT == 0 ]]; then
+        _SUCCESS_MESSAGE="${REMOTE_NAME} unmounted successfully!"
+    else
+        _ERROR_MESSAGE="${REMOTE_NAME} could not be unmounted!"
+    fi
+    MENU_UMOUNT
+}
+
+MENU_EXPLORER() {
+    PRINT_HEADER
+    SHOW_MSGS
+    GET_OPTIONS
+    echo -e "${FG_YELLOW}${BOLD}Explore mounted point:${RESET}\n"
+    local entries=()
+    for i in $LIST_MOUNTED_POINTS; do
+        local info="$(jshon -e points -e "$i" -e "local_directory" -u -Q <"${RCLONEM_JSON}")"
+        entries+=("${FG_GREEN}$i${RESET} ${FG_CYAN}→${RESET} ${FG_YELLOW}$info${RESET}")
+    done
+    entries+=("$_BACK")
+    entries+=("$_EXIT")
+    for idx in {1..${#entries[@]}}; do
+        echo -e "  ${FG_MAGENTA}$idx.${RESET} ${entries[$idx]}"
+    done
+    PRINT_FOOTER
+    echo -ne "$PROMPT Explore (1-${#entries[@]}): "
+    read -r sel
+    POINT="${LIST_MOUNTED_POINTS[$sel]}"
+    if [[ "$sel" -eq $((${#entries[@]} - 1)) ]]; then
+        MENU_MAIN
+        return
+    elif [[ "$sel" -eq ${#entries[@]} ]]; then
+        EXIT
+        return
+    elif [[ -z "$POINT" ]]; then
+        _ERROR_MESSAGE="Invalid option!"
+        MENU_EXPLORER
+        return
+    fi
+    LOCAL_DIRECTORY=$(jshon -e points -e "$POINT" -e "local_directory" -u -Q <"${RCLONEM_JSON}")
+    $EXPLORER "$LOCAL_DIRECTORY"
+    MENU_EXPLORER
+}
+
+EDIT() {
+    $EDITOR "$RCLONEM_JSON"
+}
+
+HELP() {
+    less "$RCLONEM_HELP"
+}
+
+EXIT() {
+    echo -e "${FG_YELLOW}Bye!${RESET}"
+    exit 0
+}
+
+# --- Start ---
+MENU_MAIN
