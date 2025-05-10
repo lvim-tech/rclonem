@@ -11,7 +11,7 @@ FG_MAGENTA="\033[35m"
 FG_CYAN="\033[36m"
 FG_WHITE="\033[97m"
 
-SEP="${FG_MAGENTA}────────────────────────────────────────────────────${RESET}"
+SEP="${FG_MAGENTA}──────────────────────────────────────────────────────────────────────────────${RESET}"
 PROMPT="${FG_CYAN}❯${RESET}"
 
 ICON_MOUNT="${FG_GREEN}\uf019${RESET}"
@@ -21,7 +21,7 @@ ICON_EDIT="${FG_CYAN}\uf044${RESET}"
 ICON_BACK="${FG_BLUE}\uf0e2${RESET}"
 ICON_HELP="${FG_MAGENTA}\uf059${RESET}"
 ICON_EXIT="${FG_RED}\uf2f5${RESET}"
-ICON_EDITOR="${FG_CYAN}\ue7c5${RESET}"
+ICON_EDITOR="${FG_CYAN}\uf040${RESET}"
 ICON_FOLDER="${FG_YELLOW}\uf115${RESET}"
 
 typeset -A MENU_MAIN=(
@@ -102,14 +102,14 @@ IS_MOUNTED() {
 
 PRINT_HEADER() {
     clear
-    echo -e "${FG_BLUE}${BOLD}                 RCLONE MANAGER                 ${RESET}"
+    echo -e "${FG_BLUE}${BOLD}                              RCLONE MANAGER                              ${RESET}"
     echo -e "$SEP"
 }
 
 PRINT_FOOTER() {
     echo -e "$SEP"
-    echo -e "  ${ICON_EDITOR}  ${FG_CYAN}Editor:${RESET} $EDITOR"
-    echo -e "  ${ICON_FOLDER}  ${FG_YELLOW}Explorer:${RESET} $EXPLORER"
+    printf "  ${ICON_EDITOR}  ${FG_CYAN}Editor:${RESET} %s\n" "$EDITOR"
+    printf "  ${ICON_FOLDER}  ${FG_YELLOW}Explorer:${RESET} %s\n" "$EXPLORER"
     echo -e "$SEP"
 }
 
@@ -130,8 +130,8 @@ MENU_MAIN() {
     while true; do
         PRINT_HEADER
         SHOW_MSGS
+        echo -e "${FG_YELLOW}${BOLD}  Main Menu:${RESET}\n"
         GET_OPTIONS
-        echo -e "${FG_YELLOW}${BOLD}Main Menu:${RESET}\n"
         if [[ $LENGTHS -le 0 ]]; then
             for k in D H X; do
                 echo -e "  ${MENU_MAIN[$k]}"
@@ -167,7 +167,7 @@ MENU_MOUNT() {
         PRINT_HEADER
         SHOW_MSGS
         GET_OPTIONS
-        echo -e "${FG_GREEN}${BOLD}Choose point to mount:${RESET}\n"
+        echo -e "${FG_GREEN}${BOLD}  Choose point to mount:${RESET}\n"
         
         if [[ ${#LIST_UMOUNTED_POINTS[@]} -eq 0 ]]; then
             echo -e "  ${FG_YELLOW}No unmounted points available.${RESET}\n"
@@ -254,7 +254,7 @@ MENU_UMOUNT() {
         PRINT_HEADER
         SHOW_MSGS
         GET_OPTIONS
-        echo -e "${FG_RED}${BOLD}Choose point to unmount:${RESET}\n"
+        echo -e "${FG_RED}${BOLD}  Choose point to unmount:${RESET}\n"
         
         if [[ ${#LIST_MOUNTED_POINTS[@]} -eq 0 ]]; then
             echo -e "  ${FG_YELLOW}No mounted points available.${RESET}\n"
@@ -351,7 +351,7 @@ MENU_EXPLORER() {
         PRINT_HEADER
         SHOW_MSGS
         GET_OPTIONS
-        echo -e "${FG_YELLOW}${BOLD}Explore mounted point:${RESET}\n"
+        echo -e "${FG_YELLOW}${BOLD}  Explore mounted point:${RESET}\n"
         
         if [[ ${#LIST_MOUNTED_POINTS[@]} -eq 0 ]]; then
             echo -e "  ${FG_YELLOW}No mounted points available.${RESET}\n"
